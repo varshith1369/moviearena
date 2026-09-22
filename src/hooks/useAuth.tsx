@@ -123,26 +123,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Supabase auth subscription
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
+    // Supabase auth subscription with safe error handling
+    let unsubscribe: (() => void) | undefined;
+    try {
+      const { data } = supabase.auth.onAuthStateChange((_event, s) => {
+        setSession(s);
+        setLoading(false);
+        if (s?.user) {
+          setTimeout(() => void loadProfile(s.user), 0);
+        } else if (!localStorage.getItem(LOCAL_STORAGE_KEY)) {
+          setProfile(null);
+        }
+      });
+      unsubscribe = () => data?.subscription?.unsubscribe();
+    } catch (err) {
+      console.warn("Failed to subscribe to auth state changes:", err);
       setLoading(false);
-      if (s?.user) {
-        setTimeout(() => void loadProfile(s.user), 0);
-      } else if (!localStorage.getItem(LOCAL_STORAGE_KEY)) {
-        setProfile(null);
-      }
-    });
+    }
 
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    try {
+      void supabase.auth.getSession().then(({ data }) => {
+        setSession(data.session);
+        setLoading(false);
+        if (data.session?.user) {
+          void loadProfile(data.session.user);
+        }
+      }).catch((err) => {
+        console.warn("Failed to get session:", err);
+        setLoading(false);
+      });
+    } catch (err) {
+      console.warn("Error calling getSession:", err);
       setLoading(false);
-      if (data.session?.user) {
-        void loadProfile(data.session.user);
-      }
-    });
+    }
 
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      unsubscribe?.();
+    };
   }, []);
 
   const signInLocally = (data: { email: string; username?: string; displayName?: string }) => {
